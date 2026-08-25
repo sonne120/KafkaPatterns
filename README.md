@@ -4,7 +4,7 @@
 > (Streamiz) and ksqlDB. The same transactional outbox is then wired four different ways as
 > DI-hosted variants (state machine, batch job, plain polling relay, Rx consumer), with an
 > optional Redis fast-path duplicate filter — the cache is a fast path, the ledger is the
-> guarantee. 18 runnable commands, one broker in Docker.**
+> guarantee.**
 
 Not toy snippets: every demo uses idempotent producers (`Acks=All`), manual offset commits
 **after** processing, `ReadCommitted` isolation where transactions are involved, and deliberately
