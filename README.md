@@ -58,16 +58,17 @@ Two invariants hold across every demo:
 One topic, independent consumer groups — classic fan-out. Both groups receive **every** message,
 each tracking its own offsets.
 
-```
-┌──────────┐   OrderPlaced   ┌────────────────┐
-│ Producer │ ──────────────▶ │  orders.placed │
-└──────────┘                 └───────┬────────┘
-                                     │ every group gets every message
-                     ┌───────────────┴───────────────┐
-                     ▼                               ▼
-        ┌─────────────────────────┐    ┌──────────────────────────────┐
-        │ group: analytics-service│    │ group: notification-service  │
-        └─────────────────────────┘    └──────────────────────────────┘
+```text
+┌──────────┐                 ┌─────────────────┐
+│ Producer │ ──────────────▶ │  Kafka Topic    │
+└──────────┘                 │  orders.placed  │
+                             └────────┬────────┘
+                                      │ every group gets every message
+                      ┌───────────────┴───────────────┐
+                      ▼                               ▼
+         ┌─────────────────────────┐    ┌──────────────────────────────┐
+         │ group: analytics-service│    │ group: notification-service  │
+         └─────────────────────────┘    └──────────────────────────────┘
 ```
 
 Use when: multiple systems need the same data.
@@ -77,18 +78,19 @@ Use when: multiple systems need the same data.
 One consumer group, three workers. Kafka assigns partitions to members, so each job is processed
 by exactly one worker; the offset is committed **after** the work is done (at-least-once).
 
-```
+```text
 ┌────────────┐        ┌───────────────────────┐
-│ Dispatcher │ ─────▶ │  images.resize-jobs   │
-└────────────┘        │     (3 partitions)    │
+│ Dispatcher │ ─────▶ │  Kafka Topic          │
+└────────────┘        │  images.resize-jobs   │
+                      │  (3 partitions)       │
                       └──────────┬────────────┘
                      group: image-resizer
-              ┌──────────┬──────┴─────┬──────────┐
-              │ p0       │ p1         │ p2       │
-              ▼          ▼            ▼
-         ┌─────────┐ ┌─────────┐ ┌─────────┐
-         │worker-1 │ │worker-2 │ │worker-3 │   commit offset
-         └─────────┘ └─────────┘ └─────────┘   AFTER processing
+              ┌──────────┬───────┴─────┬──────────┐
+              │ p0       │ p1          │ p2       │
+              ▼          ▼             ▼
+         ┌─────────┐ ┌─────────┐ ┌──────────┐
+         │worker-1 │ │worker-2 │ │worker-3  │   commit offset
+         └─────────┘ └─────────┘ └──────────┘   AFTER processing
 ```
 
 Use when: distributing tasks or work among multiple consumers.
@@ -98,10 +100,11 @@ Use when: distributing tasks or work among multiple consumers.
 The topic **is** the source of truth. Account events are appended; a projector with a fresh
 `group.id` replays from offset 0 and rebuilds balances from scratch.
 
-```
+```text
 ┌────────┐  append events  ┌──────────────────────┐
-│ Writer │ ──────────────▶ │ bank.account-events  │
-└────────┘                 │   (long retention)   │
+│ Writer │ ──────────────▶ │ Kafka Topic          │
+└────────┘                 │ bank.account-events  │
+                           │ (long retention)     │
                            └──────────┬───────────┘
                                       │ replay from offset 0
                                       ▼
@@ -120,15 +123,16 @@ Use when: you need a full audit trail and reproducible state.
 and the consumed offsets are committed atomically in one Kafka transaction
 (`SendOffsetsToTransaction`) — exactly-once from input topic to output topic.
 
-```
+```text
 ┌───────────────┐      ┌────────────────────────┐      ┌────────────────────┐
-│ payments.raw  │ ───▶ │        Enricher        │ ───▶ │ payments.enriched  │
-└───────────────┘      │ currency → USD, risk   │      └─────────┬──────────┘
-                       └───────────┬────────────┘                │
-                                   │                             ▼
-                    one Kafka transaction:            ┌────────────────────┐
-                    output record + input offsets     │ sink               │
-                    commit together, or not at all    │ (ReadCommitted)    │
+│ Kafka Topic   │ ───▶ │        Enricher        │ ───▶ │ Kafka Topic        │
+│ payments.raw  │      │ currency → USD, risk   │      │ payments.enriched  │
+└───────────────┘      └───────────┬────────────┘      └─────────┬──────────┘
+                                   │                             │
+                    one Kafka transaction:                       ▼
+                    output record + input offsets     ┌────────────────────┐
+                    commit together, or not at all    │ sink               │
+                                                      │ (ReadCommitted)    │
                                                       └────────────────────┘
 ```
 
@@ -141,7 +145,7 @@ Production CDC is Debezium tailing the DB WAL. The app-level equivalent you own 
 polls the outbox, publishes, and stamps rows dispatched. Keyed by **entity id**, so every change
 to one entity stays on one partition. Three hosted relay styles: [CDC variants](#cdc-variants--one-outbox-three-relays).
 
-```
+```text
 ┌─────┐  one SaveChangesAsync  ┌──────────────────┐
 │ App │ ─────────────────────▶ │  source table    │
 └─────┘                        │  + outbox table  │
@@ -149,9 +153,10 @@ to one entity stays on one partition. Three hosted relay styles: [CDC variants](
                                         │ poll unsent rows
                                         ▼
                                ┌──────────────────┐  publish   ┌────────────────┐
-                               │   outbox relay   │ ─────────▶ │ cdc.customers  │
-                               │ (stamp after ack)│            │ key = entity id│
-                               └──────────────────┘            └───────┬────────┘
+                               │   outbox relay   │ ─────────▶ │ Kafka Topic    │
+                               │ (stamp after ack)│            │ cdc.customers  │
+                               └──────────────────┘            │ key = entity id│
+                                                               └───────┬────────┘
                                                                        ▼
                                                               ┌────────────────┐
                                                               │   consumer →   │
@@ -167,14 +172,14 @@ dual-write problem (Kafka down → rows simply wait in the outbox).
 A failing record is retried with backoff; when retries are exhausted the original payload is
 parked to `<topic>.dlq` with diagnostic headers, and the main partition is unblocked.
 
-```
+```text
 ┌───────────────────┐      ┌──────────┐  success   ✓ delivered, commit
-│ webhooks.outgoing │ ───▶ │ consumer │ ─────────▶
-└───────────────────┘      └────┬─────┘
-                                │ retries exhausted
+│ Kafka Topic       │ ───▶ │ consumer │ ─────────▶
+│ webhooks.outgoing │      └────┬─────┘
+└───────────────────┘           │ retries exhausted
                                 ▼
                    ┌────────────────────────────────┐     ┌────────────────┐
-                   │          deadletter            │ ──▶ │  dlq-monitor   │
+                   │ Kafka Topic: deadletter        │ ──▶ │  dlq-monitor   │
                    │ x-error · x-original-offset ·  │     │ alert / redrive│
                    │ x-retry-count · x-failed-at    │     └────────────────┘
                    └────────────────────────────────┘
@@ -187,12 +192,13 @@ Use when: you need to handle poison messages without blocking the stream.
 The child topic is derived from the parent using the **same key** (`UserId`) — per-user ordering
 holds across the whole pipeline and every derived record is traceable to its source partition.
 
-```
+```text
 ┌─────────────────────┐      ┌────────────────────┐      ┌─────────────────────┐
-│ user.events (parent)│ ───▶ │      Deriver       │ ───▶ │ user.profiles(child)│
-│    key = UserId     │      │ fold events →      │      │    key = UserId     │
-└─────────────────────┘      │ profile state      │      └─────────────────────┘
-                             └────────────────────┘        SAME key — that is
+│ Kafka Topic         │ ───▶ │      Deriver       │ ───▶ │ Kafka Topic         │
+│ user.events (parent)│      │ fold events →      │      │ user.profiles(child)│
+│ key = UserId        │      │ profile state      │      │ key = UserId        │
+└─────────────────────┘      └────────────────────┘      └─────────────────────┘
+                                                           SAME key — that is
                                                            the traceability
                                                            contract
 ```
@@ -205,14 +211,15 @@ Async RPC over Kafka: `correlation-id` + `reply-to` headers on the request, one 
 client instance; the client matches responses to awaiting callers via
 `ConcurrentDictionary<corrId, TaskCompletionSource>`.
 
-```
+```text
 ┌────────┐  {corr-id, reply-to}  ┌──────────────────┐      ┌─────────────────┐
-│ Client │ ────────────────────▶ │ pricing.requests │ ───▶ │ pricing-service │
-└────────┘                       └──────────────────┘      └────────┬────────┘
-    ▲                                                               │ corr-id
+│ Client │ ────────────────────▶ │ Kafka Topic:     │ ───▶ │ pricing-service │
+└────────┘                       │ pricing.requests │      └────────┬────────┘
+    ▲                            └──────────────────┘               │ corr-id
     │ TaskCompletionSource.SetResult                                │ echoed back
     │                            ┌──────────────────────────┐       │
-    └─────────────────────────── │ pricing.replies.client-1 │ ◀─────┘
+    └─────────────────────────── │ Kafka Topic:             │ ◀─────┘
+                                 │ pricing.replies.client-1 │
                                  └──────────────────────────┘
 ```
 
@@ -224,12 +231,12 @@ Members of one group compete for partitions — each message is processed by exa
 Mid-demo one consumer is killed so the rebalance is visible in the logs
 (`SetPartitionsAssignedHandler` / `SetPartitionsRevokedHandler`).
 
-```
+```text
 ┌───────────────────┐        group: email-sender
-│  emails.outgoing  │   ┌──────────┬──────────┬──────────┐
-│   (4 partitions)  │──▶│ sender-1 │ sender-2 │ sender-3 │
-└───────────────────┘   │ (p0,p1)  │  (p2)    │  (p3) ✗  │
-                        └──────────┴──────────┴────┬─────┘
+│ Kafka Topic       │   ┌──────────┬──────────┬──────────┐
+│ emails.outgoing   │──▶│ sender-1 │ sender-2 │ sender-3 │
+│ (4 partitions)    │   │ (p0,p1)  │  (p2)    │  (p3) ✗  │
+└───────────────────┘   └──────────┴──────────┴────┬─────┘
                                                    │ crash → rebalance
                                                    ▼
                                        p3 reassigned to survivors —
@@ -244,11 +251,11 @@ Two strategies side by side: the default **murmur2 key hash** (same device → s
 per-device ordering), and a **custom partitioner** that pins whole regions to partitions — what
 you do when consumers are region-affine (data residency, cache locality).
 
-```
+```text
               ┌──────────┐
               │ Producer │
               └────┬─────┘
-      key = "eu"   │   key = "us"      key = "apac"
+      key = 'eu' │   key = 'us'    key = 'apac'
       ┌────────────┼────────────┬─────────────────┐
       ▼            ▼            ▼                 ▼
 ┌───────────┐ ┌───────────┐ ┌────────────────────────┐
@@ -258,7 +265,6 @@ you do when consumers are region-affine (data residency, cache locality).
 ```
 
 Use when: you need throughput, ordering guarantees, or placement rules.
-
 ## 11. Saga
 
 Choreography across three services: Order → Payment → Inventory. If inventory reservation fails,
@@ -278,82 +284,70 @@ half-committed.
 
 Use when: managing transactions across multiple microservices.
 
+
 ## 12. Time Windowing
 
 Tumbling 5-second windows over a click stream, keyed by page. The window bucket is
 `floor(eventTime / windowSize)`; when the watermark passes a window's end, its aggregate is
 flushed to the output topic — the manual equivalent of `windowedBy(TimeWindows.of(...))`.
 
-```
+```text
 ┌────────────────┐      ┌───────────────────────────┐      ┌───────────────────────────┐
-│ site.pageviews │ ───▶ │         Windower          │ ───▶ │ site.pageviews.per-window │
-└────────────────┘      │ bucket = floor(t / 5s)    │      └────────────┬──────────────┘
-                        │ flush when watermark      │                   ▼
-                        │ passes window end         │   [12:00:05–12:00:10] /home: 7 views
-                        └───────────────────────────┘
+│ Kafka Topic    │ ───▶ │         Windower          │ ───▶ │ Kafka Topic               │
+│ site.pageviews │      │ bucket = floor(t / 5s)    │      │ site.pageviews.per-window │
+└────────────────┘      │ flush when watermark      │      └────────────┬──────────────┘
+                        │ passes window end         │                   ▼
+                        └───────────────────────────┘   [12:00:05–12:00:10] /home: 7 views
 ```
 
 Use when: you need time-based aggregations or metrics.
+## 13. Resilient Consumer (Rx)
 
-## 13. Resilient Consumer
+This pattern demonstrates a production-grade, domain-agnostic consumer (`KafkaConsumerRx`) separating the mechanical complexities of Kafka consumption from business logic. It handles reactive batching, dual-tier idempotency, and strict Failure/Result mapping.
 
-The other twelve show *what* to build. This one is the consumer you reuse: generic over the
-payload, generic over the work, opinionated about exactly one thing — what to do when processing
-fails.
+`KafkaConsumerRx` takes an incoming topic, batches it implicitly via Rx.NET, and injects the records into your pluggable strategy (`Func<string, CancellationToken, Task<Result>>`). It translates your business outcome into the exact required partition offset movements.
 
-`KafkaConsumerRx` knows nothing about any domain. It takes a topic and a strategy
-(`Func<string, CancellationToken, Task<Result>>`) and turns that strategy's answer into the
-correct offset move.
-
-```
-        ┌──────────────────────┐
-        │  payments.commands   │   seeder emits 6 valid commands + 1 malformed
-        └──────────┬───────────┘
-                   │ ConsumeBatch (≤100 records, 5s window)
-                   ▼
-        ┌──────────────────────┐        ┌───────────────────────────────┐
-        │   KafkaConsumerRx    │ ─────▶ │ strategy: RxMessageProcessor  │
-        │  (domain-agnostic)   │        │ Redis fast path ─▶ EF ledger  │
-        └──────────┬───────────┘        └───────────────┬───────────────┘
-                   │                                    │ Result
-                   ▼                                    ▼
-   ┌────────────────────────────────────────────────────────────────────┐
-   │ Success   → Commit                                                 │
-   │ Transient → Seek back — this record AND the rest of the batch,     │
-   │             on every partition the batch touched                   │
-   │ Failure   → produce to `deadletter`, then commit past it           │
-   └────────────────────────────────────────────────────────────────────┘
-```
-
-Three things here are easy to get wrong, and the demo makes each visible:
-
-- **Skipping a commit isn't a retry**: Simply failing to commit a message means it gets permanently skipped, not retried. To actually retry a failed message, you must explicitly tell the system to rewind (Seek). This rewind must apply to the entire batch of partitions, otherwise, the remaining messages will be dropped.
-- **Terminal failures get no retry budget.** `Result.Failure` means the record can never be
-  processed — malformed payload, unknown type. Re-queueing it burns the budget re-parsing
-  something that will never parse, and reorders it against everything produced meanwhile. It
-  goes straight to `deadletter`; only `Transient` rewinds.
-- **Idempotency is two-tier.** A Redis lookup in front of a durable ledger keyed by event id.
-  The ledger is the guarantee; the cache only saves a round-trip, so a Redis outage falls
-  through rather than failing. Marking happens *after* the durable commit — marking first lets a
-  crash in between convince the next delivery that work nobody did was already done.
-
-The seeder deliberately produces one payload that is not valid JSON, so the dead-letter path
-actually runs rather than merely being described:
-
-```
-[seeder] seeded PAY-BAD — a malformed payload, expect it to be dead-lettered
-RxMessageProcessor  Malformed message; routing to dead-letter: 't' is an invalid start of a property name
-KafkaConsumerRx     Dead-lettered -> deadletter
+```text
+        ┌───────────────────────────────┐
+        │ Kafka Topic: cdc.customers    │   
+        └──────────────┬────────────────┘
+                       │ ConsumeBatch (≤100 records, 5s window)
+                       ▼
+        ┌───────────────────────────────┐      ┌───────────────────────────────┐
+        │      KafkaConsumerRx          │ ───▶ │ PacketShardMessageProcessor   │
+        │     (domain-agnostic)         │      │     (business outcome)        │
+        └──────────────┬────────────────┘      └───────────────┬───────────────┘
+                       │                                       │ 
+                       │                                       ▼
+                       │                        ┌───────────────────────────────┐
+                       │                        │ 1. Redis Cache (Fast Lookup)  │
+                       │                        │    Hit → Skip                 │
+                       │                        │    Miss → Fallthrough         │
+                       │                        └──────────────┬────────────────┘
+                       │                                       │ 
+                       │                                       ▼
+                       │                        ┌───────────────────────────────┐
+                       │                        │ 2. EF Core Ledger (Guarantee) │
+                       │                        │    Handle record & Save       │
+                       │                        └──────────────┬────────────────┘
+                       │                                       │
+                       ▼                                       ▼ 
+   ┌───────────────────────────────────────────────────────────────────────┐
+   │ bool? (Outcome mapped to Partition Operations)                        │
+   ├───────────────────────────────────────────────────────────────────────┤
+   │ true  (Success)   → Commit offset and gracefully move forward         │
+   │ null  (Transient) → Seek partition back natively to retry later       │
+   │ false (Poison)    → Produce to `deadletter` topic, then commit past   │
+   └───────────────────────────────────────────────────────────────────────┘
 ```
 
-Compare with pattern 6 (`dlq`): that one *is* the dead-letter pattern, hand-rolled one message at
-a time so you can read the mechanism. This one is the reusable consumer with the mechanism built
-in, plus batching and idempotency. The consumer itself lives in
-`Infrastructure/Messaging/Consumers/KafkaConsumerRx.cs`; only the strategy, the payload and the
-seeder are pattern-specific.
+Three things are handled natively so the business layer doesnt get it wrong:
 
-Use when: you want one consumer implementation every service shares, instead of each one
-re-deciding what to do about a failed message.
+- **Skipping a commit isn't a retry**: Simply failing to commit a message means it gets permanently skipped, not retried. To actually retry a failed message, `KafkaConsumerRx` explicitly calls `Seek` to rewind the entire batch on the affected partitions.
+- **Terminal failures get no retry budget:** `Result.Failure` denotes a record that can never be processed (e.g. malformed payload). Re-queueing burns budget. It is routed immediately to the `deadletter` topic via the `DeadLetterProducer` and bypassed.
+- **Idempotency is two-tier:** A Redis lookup is placed in front of an EF Core durable ledger keyed by event ID. The ledger is the guarantee. The cache saves the DB round trips, but if Redis is down, it fails-open allowing the ledger to make the final constraint guarantee.
+
+Use when: you want one battle-tested reactive consumer wrapper that every service shares, enforcing strict delivery guarantees.
 
 ## 14. Kafka Streams (Streamiz)
 
