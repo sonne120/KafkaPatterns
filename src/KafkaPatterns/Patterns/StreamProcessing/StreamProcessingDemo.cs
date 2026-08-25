@@ -1,6 +1,7 @@
 using Confluent.Kafka;
 using KafkaPatterns.Infrastructure;
 using KafkaPatterns.Infrastructure.Messaging;
+using KafkaPatterns.Infrastructure.Messaging.Serialization;
 
 namespace KafkaPatterns.Patterns.StreamProcessing;
 

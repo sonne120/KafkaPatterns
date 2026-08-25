@@ -13,7 +13,11 @@ public static class KafkaConfig
         {
             BootstrapServers = BootstrapServers,
             Acks = Acks.All,               // wait for full ISR ack
-            EnableIdempotence = true,      // exactly-once per partition on the produce side
+            EnableIdempotence = true,      // exactly-once delivery
+            MessageSendMaxRetries = 3,     // retry transient failures
+            MessageTimeoutMs = 30_000,    // wait for retries
+            RequestTimeoutMs = 10_000,     // wait for broker response
+            MaxInFlight = 5,                // allow pipelining of requests
             LingerMs = 5,                  // small batching window
             CompressionType = CompressionType.Lz4
         };

@@ -3,6 +3,9 @@ using KafkaPatterns.Infrastructure;
 using KafkaPatterns.Infrastructure.Messaging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using KafkaPatterns.Infrastructure.Messaging.Configuration;
+using KafkaPatterns.Infrastructure.Messaging.Producers;
+using KafkaPatterns.Infrastructure.Messaging.Serialization;
 
 namespace KafkaPatterns.Patterns.DeadLetterQueue;
 
@@ -68,7 +71,7 @@ public static class DeadLetterQueueDemo
                         : $"{delivery.Id} could NOT be parked ({parked.Error}) — it will be redelivered");
                 }
 
-                consumer.Commit(cr); // commit either way — partition must not stay blocked
+                consumer.Commit(cr); 
             }
         }
         catch (OperationCanceledException) { }

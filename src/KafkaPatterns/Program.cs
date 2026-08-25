@@ -11,6 +11,7 @@ using KafkaPatterns.Patterns.DeadLetterQueue;
 using KafkaPatterns.Patterns.EventSourcing;
 using KafkaPatterns.Patterns.KafkaStreams;
 using KafkaPatterns.Patterns.Ksql;
+using KafkaPatterns.Patterns.ResilientConsumer;
 using KafkaPatterns.Patterns.ParentChild;
 using KafkaPatterns.Patterns.Partitioning;
 using KafkaPatterns.Patterns.PubSub;
@@ -21,6 +22,10 @@ using KafkaPatterns.Patterns.TimeWindowing;
 using KafkaPatterns.Patterns.WorkQueue;
 
 using KafkaPatterns.Infrastructure.Persistence;
+using KafkaPatterns.Infrastructure;
+using KafkaPatterns.Infrastructure.Messaging.Configuration;
+using KafkaPatterns.Infrastructure.Messaging.Consumers;
+using KafkaPatterns.Infrastructure.Messaging.Producers;
 
 const string CdcTopic = CdcTopics.CustomerEvents;
 
@@ -67,16 +72,14 @@ builder.ConfigureServices((hostContext, services) =>
             services.AddHostedService<CustomerWriteSimulator>();
             break;
 
-        case "cdc-rx":
-            EnsureTopics(3, CdcTopic);
-
-            // 1. Strategy logic
+        case "resilient":
+            // Not a CDC variant: KafkaConsumerRx knows nothing about CDC. It is a general-purpose
+            // consumer — batch, apply a strategy, and turn that strategy's Result into the right
+            // offset move. Its own seeder feeds it, including one malformed payload so the
+            // dead-letter path actually runs.
             services.AddSingleton<RxMessageProcessor>();
+            services.AddHostedService<PaymentCommandSeeder>();
 
-            // 2. The outbox processor
-            services.AddHostedService<StateMachineOutboxRelay>();
-
-            // 3. Add the actual KafkaConsumerRx directly injected
             services.AddHostedService(sp =>
             {
                 var processor = sp.GetRequiredService<RxMessageProcessor>();
@@ -84,12 +87,10 @@ builder.ConfigureServices((hostContext, services) =>
                     sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
                     sp.GetRequiredService<ILogger<KafkaConsumerRx>>(),
                     sp.GetRequiredService<DeadLetterProducer>(),
+                    ResilientConsumerTopics.Commands,   // which topic is a composition-root decision
                     processor.ProcessMessageAsync
                 );
             });
-
-            // 4. Keep Demo host to simulate pushing commands to it
-            services.AddHostedService<CustomerWriteSimulator>();
             break;
 
         case "pubsub":       AddDemo("Publish/Subscribe",    PubSubDemo.RunAsync); break;
@@ -132,7 +133,8 @@ static class DemoCatalog
         "pubsub", "workqueue", "eventsource", "stream", "cdc", "dlq", "parentchild",
         "reqreply", "competing", "partitioning", "saga", "windowing",
         "streams", "ksql",
-        "cdc-state", "cdc-batch", "cdc-poll", "cdc-rx"
+        "resilient",
+        "cdc-state", "cdc-batch", "cdc-poll"
     ];
 }
 

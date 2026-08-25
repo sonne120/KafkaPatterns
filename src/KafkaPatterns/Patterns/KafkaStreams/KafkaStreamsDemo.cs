@@ -58,7 +58,7 @@ public static class KafkaStreamsDemo
         }
         finally
         {
-            streams.Dispose(); // graceful: flush stores, commit, leave group
+            streams.Dispose();
             await DemoRunner.ShutdownAsync(demoCts, reporter, seeder);
         }
     }

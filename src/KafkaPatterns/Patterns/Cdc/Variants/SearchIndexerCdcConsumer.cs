@@ -3,6 +3,9 @@ using KafkaPatterns.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using KafkaPatterns.Infrastructure;
+using KafkaPatterns.Infrastructure.Messaging.Configuration;
+using KafkaPatterns.Infrastructure.Messaging.Consumers;
 
 namespace KafkaPatterns.Patterns.Cdc.Variants;
 

@@ -3,9 +3,10 @@ using KafkaPatterns.Infrastructure.Messaging;
 using KafkaPatterns.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using KafkaPatterns.Infrastructure;
+using KafkaPatterns.Infrastructure.Messaging.Serialization;
 
-namespace KafkaPatterns.Patterns.Cdc.Variants;
-
+namespace KafkaPatterns.Patterns.ResilientConsumer;
 
 public class RxMessageProcessor
 {
@@ -26,14 +27,14 @@ public class RxMessageProcessor
         _logger = logger;
     }
 
-
     /// Result.Success   = handled; commit.
     /// Result.Failure   = poison; route to the dead-letter topic and commit the source partition.
     /// Result.Transient = dependency unreachable; rewind the partition and try again later.
 
+
     public async Task<Result> ProcessMessageAsync(string payload, CancellationToken stoppingToken)
     {
-        var envelope = _serializer.TryDeserialize<CustomerCdcEvent>(payload);
+        var envelope = _serializer.TryDeserialize<PaymentCommand>(payload);
         if (envelope.IsFailure)
         {
             _logger.LogError("Malformed message; routing to dead-letter: {Error}", envelope.Error);
@@ -42,8 +43,7 @@ public class RxMessageProcessor
 
         var txId = envelope.Value.EventId.ToString();
 
-        // 1. Fast-path filter (Redis). A Transient here means the cache is down, not that the
-        //    message is new — either way we fall through, because the ledger is the real guard.
+        // 1. Fast-path filter (Redis)
         var seen = await _idempotencyCache.WasProcessedAsync(txId, stoppingToken);
         if (seen.IsSuccess && seen.Value)
         {
@@ -56,8 +56,7 @@ public class RxMessageProcessor
         if (committed.IsFailure)
             return committed;
 
-        // 3. Mark AFTER the durable commit, never before: marking first would let a crash in
-        //    between convince the next delivery that work it never did was already done.
+        // 3. Mark AFTER the durable commit
         await _idempotencyCache.MarkProcessedAsync(txId, stoppingToken);
 
         _logger.LogInformation("Message {Key} committed fully.", txId);
@@ -66,7 +65,7 @@ public class RxMessageProcessor
 
     private async Task<Result> TryCommitAsync(string txId, string payload, CancellationToken cancellationToken)
     {
-        await Task.Delay(10, cancellationToken); // Simulate network I/O
+        await Task.Delay(10, cancellationToken); 
 
         if (Random.Shared.Next(0, 100) < 10)
         {

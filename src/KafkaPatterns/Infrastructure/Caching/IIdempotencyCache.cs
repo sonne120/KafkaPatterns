@@ -1,6 +1,7 @@
 using KafkaPatterns.Infrastructure.Messaging;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
+using KafkaPatterns.Infrastructure;
 
 namespace KafkaPatterns.Infrastructure.Caching;
 

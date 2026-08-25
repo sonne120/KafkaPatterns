@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using KafkaPatterns.Patterns.Cdc.Variants;
+using KafkaPatterns.Infrastructure;
+using KafkaPatterns.Infrastructure.Messaging.Serialization;
 
 namespace KafkaPatterns.Patterns.Cdc;
 
