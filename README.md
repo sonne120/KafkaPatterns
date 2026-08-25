@@ -1,6 +1,10 @@
 # KafkaPatterns
 
-> **KafkaPatterns — the classic Kafka patterns implemented . Plus the same transactional outbox relayed four different ways (state machine, EF polling job, plain polling relay, Rx pipeline) as DI-hosted variants, with an optional Redis fast-path duplicate filter — cache is a fast path, the ledger is the guarantee.**
+> **KafkaPatterns — the 12 classic Kafka patterns implemented in C# / .NET 8, plus Kafka Streams
+> (Streamiz) and ksqlDB. The same transactional outbox is then wired four different ways as
+> DI-hosted variants (state machine, batch job, plain polling relay, Rx consumer), with an
+> optional Redis fast-path duplicate filter — the cache is a fast path, the ledger is the
+> guarantee. 18 runnable commands, one broker in Docker.**
 
 Not toy snippets: every demo uses idempotent producers (`Acks=All`), manual offset commits
 **after** processing, `ReadCommitted` isolation where transactions are involved, and deliberately
@@ -8,7 +12,7 @@ chosen message keys. Failure is modelled with `Result`, not `bool` — a consume
 **handled**, **poison**, and **transient**, and a genuine retry has to `Seek` back, because *not
 committing is not a retry*.
 
-**Contents:** [Run it](#run-it) · [Pattern catalog](#pattern-catalog) · [The 12 patterns](#1-publish--subscribe) · [CDC variants](#cdc-variants--one-outbox-four-relays) · [Redis duplicate filter](#redis-duplicate-filter-optional) · [Failure model](#failure-model-result-not-bool) · [Production notes](#production-notes-baked-into-the-code) ·
+**Contents:** [Run it](#run-it) · [Pattern catalog](#pattern-catalog) · [The patterns](#1-publish--subscribe) · [CDC variants](#cdc-variants--one-outbox-four-wirings) · [Redis duplicate filter](#redis-duplicate-filter-optional) · [Failure model](#failure-model-result-not-bool) · [Production notes](#production-notes-baked-into-the-code) ·
 
 ## Run it
 
@@ -31,7 +35,7 @@ docker compose up -d ksqldb   # required by `dotnet run -- ksql` (KSQL_URL overr
 | `eventsource`  | Event Sourcing        | Append account events, rebuild balances by replaying from offset 0                                |
 | `stream`       | Stream Processing     | Consume-transform-produce with Kafka transactions (`SendOffsetsToTransaction`) = exactly-once     |
 | `cdc`          | Change Data Capture   | Transactional-outbox relay: DB change + outbox row → poller → Kafka (Debezium's app-level cousin) |
-| `dlq`          | Dead Letter Queue     | Retries with backoff, then park to `.dlq` with `x-error` / original-offset headers                |
+| `dlq`          | Dead Letter Queue     | Bounded retries with backoff, then park to `deadletter` with `attempts` / `x-failure-reason` headers |
 | `parentchild`  | Parent-Child Topics   | Derived topic keyed by the SAME key (UserId) — traceability + ordering preserved                  |
 | `reqreply`     | Request / Reply       | `correlation-id` + `reply-to` headers, client matches replies via `TaskCompletionSource`          |
 | `competing`    | Competing Consumers   | One group competes for partitions; one consumer is killed mid-run → watch the rebalance           |
@@ -134,7 +138,7 @@ Use when: real-time transformations where duplicates are unacceptable.
 Production CDC is Debezium tailing the DB WAL. The app-level equivalent you own in code is the
 **transactional outbox**: business row + outbox row commit in one DB transaction, then a relay
 polls the outbox, publishes, and stamps rows dispatched. Keyed by **entity id**, so every change
-to one entity stays on one partition. Four hosted relay styles: [CDC variants](#cdc-variants--one-outbox-four-relays).
+to one entity stays on one partition. Four hosted relay styles: [CDC variants](#cdc-variants--one-outbox-four-wirings).
 
 ```
 ┌─────┐  one SaveChangesAsync  ┌──────────────────┐
@@ -389,18 +393,22 @@ Use when: the transformation is expressible in SQL and you'd rather operate one 
 than deploy a fleet of small stream-processing apps.
 
 
-## CDC variants — one outbox, four relays
+## CDC variants — one outbox, four wirings
 
-The same transactional outbox relayed four different ways, all DI-hosted over an EF Core
+The same transactional outbox wired four different ways, all DI-hosted over an EF Core
 in-memory database, so the business row and its outbox row commit in one `SaveChangesAsync`.
-These run until Ctrl+C; the twelve above exit on their own.
+Three of them differ in the **relay**; `cdc-rx` reuses a relay and differs in the **consumer**.
+These run until Ctrl+C; the fourteen above exit on their own.
 
-| Command     | Relay style   | What's different                                      |
-| ----------- | ------------- | ----------------------------------------------------- |
-| `cdc-wirex` | State machine | Per-row Pending/Completed/Failed with bounded retries |
-| `cdc-ef`    | Polling job   | Plainest EF poll-publish-stamp loop                   |
-| `cdc-poll`  | Polling relay | Same, minus the retry accounting                      |
-| `cdc-rx`    | Rx pipeline   | Batched consume with retry + dead-letter routing      |
+| Command     | Relay                                | What's different                                                                                                              |
+| ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `cdc-state` | `StateMachineOutboxRelay`            | Per-row Pending/Processing/Completed/Failed plus a retry budget — a failed publish stays Pending until `MaxRetryCount`. Polls every 2s |
+| `cdc-batch` | `BatchOutboxRelay`                   | Periodic job rather than a tight loop: wake every 5s, claim 20 rows, publish, report what the batch achieved. No per-row state |
+| `cdc-poll`  | `PollingOutboxRelay`                 | The plainest one — poll every 500ms, publish, stamp. No state machine, no retry accounting                                    |
+| `cdc-rx`    | *(reuses `StateMachineOutboxRelay`)* | Differs on the **consumer** side: `KafkaConsumerRx` batches, retries, and dead-letters                                        |
+
+All four share one outbox table and one write simulator (`CustomerWriteSimulator`), so the only
+thing that varies is the relay — or, for `cdc-rx`, the consumer.
 
 ```
                      ┌────────────────────┐
@@ -412,9 +420,9 @@ These run until Ctrl+C; the twelve above exit on their own.
         ┌───────────────┘     │     │   └────────────────┐
         ▼                     ▼     ▼                    ▼
 ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌────────────────────┐
-│  cdc-wirex    │ │    cdc-ef     │ │   cdc-poll    │ │      cdc-rx        │
-│ state machine │ │  polling job  │ │ polling relay │ │ Rx: batch · retry  │
-│ + retries     │ │               │ │               │ │ · dead-letter      │
+│  cdc-state    │ │   cdc-batch   │ │   cdc-poll    │ │      cdc-rx        │
+│ StateMachine  │ │  BatchOutbox  │ │ PollingOutbox │ │ same relay, but    │
+│ + retry budget│ │  every 5s     │ │ every 500ms   │ │ KafkaConsumerRx    │
 └───────┬───────┘ └───────┬───────┘ └───────┬───────┘ └─────────┬──────────┘
         └─────────────────┴────────┬────────┴───────────────────┘
                                    ▼
