@@ -1,10 +1,10 @@
-[![Downloads](https://img.shields.io/github/downloads/sonne120/KafkaPatterns/total)](https://github.com/sonne120/KafkaPatterns/releases)
-[![Latest](https://img.shields.io/github/downloads/sonne120/KafkaPatterns/latest/total)](https://github.com/sonne120/KafkaPatterns/releases/latest)
-
+![C#](https://img.shields.io/badge/C%23-512BD4)
 ![.NET](https://img.shields.io/badge/.NET-8-512BD4)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-231F20)
+![Language](https://img.shields.io/github/languages/top/sonne120/KafkaPatterns)
 ![Stars](https://img.shields.io/github/stars/sonne120/KafkaPatterns)
+![Forks](https://img.shields.io/github/forks/sonne120/KafkaPatterns)
 ![Last commit](https://img.shields.io/github/last-commit/sonne120/KafkaPatterns)
-
 
 # KafkaPatterns
 
