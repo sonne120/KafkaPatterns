@@ -1,3 +1,11 @@
+[![Downloads](https://img.shields.io/github/downloads/sonne120/KafkaPatterns/total)](https://github.com/sonne120/KafkaPatterns/releases)
+[![Latest](https://img.shields.io/github/downloads/sonne120/KafkaPatterns/latest/total)](https://github.com/sonne120/KafkaPatterns/releases/latest)
+
+![.NET](https://img.shields.io/badge/.NET-8-512BD4)
+![Stars](https://img.shields.io/github/stars/sonne120/KafkaPatterns)
+![Last commit](https://img.shields.io/github/last-commit/sonne120/KafkaPatterns)
+
+
 # KafkaPatterns
 
 > **KafkaPatterns — the classic Kafka patterns implemented in C# / .NET 8, plus Kafka Streams
